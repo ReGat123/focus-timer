@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fokus-Timer mit Vibe</title>
+<style>
+  :root {
+    --text: #f4f2ee;
+    --text-dim: rgba(244, 242, 238, 0.65);
+    --glass: rgba(255, 255, 255, 0.12);
+    --glass-border: rgba(255, 255, 255, 0.25);
+    --accent: #ffffff;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    transition: background 2.5s ease;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Time-of-day themes */
+  body.morning   { background: linear-gradient(135deg, #ff9a76 0%, #ffd97a 45%, #a8d8b9 100%); }
+  body.afternoon { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+  body.evening   { background: linear-gradient(135deg, #614385 0%, #e75480 55%, #ff9a56 100%); }
+  body.night     { background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%); }
+
+  /* Break mode gets a calmer overlay tint */
+  body.break-mode::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(20, 40, 60, 0.28);
+    transition: background 1.5s ease;
+    pointer-events: none;
+  }
+
+  .stars {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 2s ease;
+  }
+  body.night .stars { opacity: 1; }
+  .star {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    background: #fff;
+    border-radius: 50%;
+    animation: twinkle 3s ease-in-out infinite;
+  }
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 1; }
+  }
+
+  .card {
+    position: relative;
+    z-index: 1;
+    width: min(420px, 90vw);
+    padding: 40px 36px;
+    border-radius: 28px;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    text-align: center;
+    transition: transform 0.2s ease;
+  }
+
+  .greeting {
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  .mode-label {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+    opacity: 0.9;
+  }
+
+  .time {
+    font-size: 88px;
+    font-weight: 200;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 2px;
+    margin: 6px 0 22px;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.2);
+    user-select: none;
+  }
+
+  .ring-wrap {
+    position: relative;
+    width: 220px;
+    height: 220px;
+    margin: 0 auto 24px;
+  }
+  .ring-wrap svg { transform: rotate(-90deg); }
+  .ring-bg { fill: none; stroke: rgba(255,255,255,0.18); stroke-width: 6; }
+  .ring-progress {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 6;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s linear;
+  }
+  .ring-inner {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+
+  button {
+    font-family: inherit;
+    border: 1px solid var(--glass-border);
+    background: rgba(255,255,255,0.14);
+    color: var(--text);
+    padding: 12px 22px;
+    border-radius: 14px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+  button:hover { background: rgba(255,255,255,0.26); }
+  button:active { transform: scale(0.96); }
+  button.primary { background: rgba(255,255,255,0.9); color: #222; }
+  button.primary:hover { background: #fff; }
+
+  .icon-btn {
+    padding: 12px 14px;
+    font-size: 16px;
+  }
+
+  .modes {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+  .modes button {
+    padding: 8px 16px;
+    font-size: 13px;
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.15);
+  }
+  .modes button.active {
+    background: rgba(255,255,255,0.9);
+    color: #222;
+  }
+
+  .quote {
+    font-size: 14px;
+    font-style: italic;
+    color: var(--text-dim);
+    min-height: 40px;
+    margin-bottom: 18px;
+    line-height: 1.4;
+    transition: opacity 0.4s ease;
+  }
+
+  .stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--text-dim);
+    border-top: 1px solid rgba(255,255,255,0.15);
+    padding-top: 16px;
+  }
+  .stats b {
+    color: var(--text);
+    font-size: 17px;
+    display: block;
+    font-weight: 600;
+  }
+
+  .sound-toggle {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: rgba(255,255,255,0.14);
+    border: 1px solid var(--glass-border);
+    color: var(--text);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sound-toggle:hover { background: rgba(255,255,255,0.26); }
+
+  @media (max-width: 480px) {
+    .time { font-size: 64px; }
+    .ring-wrap { width: 180px; height: 180px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stars" id="stars"></div>
+
+<div class="card">
+  <button class="sound-toggle" id="soundToggle" title="Ambient-Sound an/aus">🔇</button>
+  <div class="greeting" id="greeting">Guten Tag</div>
+  <div class="mode-label" id="modeLabel">Fokus-Zeit</div>
+
+  <div class="ring-wrap">
+    <svg width="220" height="220">
+      <circle class="ring-bg" cx="110" cy="110" r="100"></circle>
+      <circle class="ring-progress" id="ringProgress" cx="110" cy="110" r="100"
+              stroke-dasharray="628.3" stroke-dashoffset="0"></circle>
+    </svg>
+    <div class="ring-inner">
+      <div class="time" id="time">25:00</div>
+    </div>
+  </div>
+
+  <div class="modes">
+    <button data-mins="25" class="active">Fokus 25</button>
+    <button data-mins="50">Fokus 50</button>
+    <button data-mins="5" data-break="1">Pause 5</button>
+    <button data-mins="15" data-break="1">Pause 15</button>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="startPause">Start</button>
+    <button class="icon-btn" id="reset" title="Zurücksetzen">↺</button>
+  </div>
+
+  <div class="quote" id="quote">Ein guter Anfang ist die halbe Arbeit.</div>
+
+  <div class="stats">
+    <div>Heute erledigt<br><b id="countToday">0</b></div>
+    <div>Fokus-Minuten<br><b id="minutesToday">0</b></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const timeEl = document.getElementById('time');
+  const ring = document.getElementById('ringProgress');
+  const startPauseBtn = document.getElementById('startPause');
+  const resetBtn = document.getElementById('reset');
+  const modeButtons = document.querySelectorAll('.modes button');
+  const modeLabel = document.getElementById('modeLabel');
+  const greetingEl = document.getElementById('greeting');
+  const quoteEl = document.getElementById('quote');
+  const countTodayEl = document.getElementById('countToday');
+  const minutesTodayEl = document.getElementById('minutesToday');
+  const soundToggle = document.getElementById('soundToggle');
+  const starsWrap = document.getElementById('stars');
+
+  const RING_CIRC = 2 * Math.PI * 100;
+  ring.style.strokeDasharray = RING_CIRC;
+
+  let totalSeconds = 25 * 60;
+  let remaining = totalSeconds;
+  let isBreak = false;
+  let running = false;
+  let intervalId = null;
+
+  const quotes = {
+    focus: [
+      "Ein guter Anfang ist die halbe Arbeit.",
+      "Kleine Schritte, große Wirkung.",
+      "Konzentration ist die Kunst, alles andere zu vergessen.",
+      "Jetzt ist der beste Moment, um anzufangen.",
+      "Ruhe wird kommen — jetzt zählt der Fokus.",
+      "Ein Ziel, ein Atemzug, eine Aufgabe.",
+      "Der Weg entsteht beim Gehen."
+    ],
+    breakq: [
+      "Atme durch. Du hast es verdient.",
+      "Kurz loslassen, dann geht's weiter.",
+      "Stille ist auch Produktivität.",
+      "Schau kurz weg vom Bildschirm.",
+      "Ein Schluck Wasser, ein klarer Kopf."
+    ]
+  };
+
+  function pickQuote() {
+    const pool = isBreak ? quotes.breakq : quotes.focus;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function fadeQuote(text) {
+    quoteEl.style.opacity = 0;
+    setTimeout(() => {
+      quoteEl.textContent = text;
+      quoteEl.style.opacity = 1;
+    }, 300);
+  }
+
+  function pad(n) { return n.toString().padStart(2, '0'); }
+
+  function render() {
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    timeEl.textContent = pad(m) + ':' + pad(s);
+    document.title = pad(m) + ':' + pad(s) + ' — ' + (isBreak ? 'Pause' : 'Fokus');
+    const frac = remaining / totalSeconds;
+    ring.style.strokeDashoffset = RING_CIRC * (1 - frac);
+  }
+
+  function applyTimeOfDayTheme() {
+    const hour = new Date().getHours();
+    let cls = 'afternoon', greeting = 'Guten Tag';
+    if (hour >= 5 && hour < 11) { cls = 'morning'; greeting = 'Guten Morgen'; }
+    else if (hour >= 11 && hour < 17) { cls = 'afternoon'; greeting = 'Guten Tag'; }
+    else if (hour >= 17 && hour < 21) { cls = 'evening'; greeting = 'Guten Abend'; }
+    else { cls = 'night'; greeting = 'Späte Stunde'; }
+    document.body.classList.remove('morning', 'afternoon', 'evening', 'night');
+    document.body.classList.add(cls);
+    greetingEl.textContent = greeting;
+  }
+
+  function buildStars() {
+    starsWrap.innerHTML = '';
+    for (let i = 0; i < 40; i++) {
+      const s = document.createElement('div');
+      s.className = 'star';
+      s.style.left = Math.random() * 100 + '%';
+      s.style.top = Math.random() * 100 + '%';
+      s.style.animationDelay = (Math.random() * 3).toFixed(2) + 's';
+      starsWrap.appendChild(s);
+    }
+  }
+
+  // --- Stats persistence ---
+  function todayKey() {
+    const d = new Date();
+    return 'focusTimer_' + d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
+  }
+  function loadStats() {
+    const raw = localStorage.getItem(todayKey());
+    return raw ? JSON.parse(raw) : { sessions: 0, minutes: 0 };
+  }
+  function saveStats(stats) {
+    localStorage.setItem(todayKey(), JSON.stringify(stats));
+  }
+  function refreshStatsUI() {
+    const stats = loadStats();
+    countTodayEl.textContent = stats.sessions;
+    minutesTodayEl.textContent = stats.minutes;
+  }
+  function recordCompletedSession() {
+    if (isBreak) return;
+    const stats = loadStats();
+    stats.sessions += 1;
+    stats.minutes += Math.round(totalSeconds / 60);
+    saveStats(stats);
+    refreshStatsUI();
+  }
+
+  // --- Audio (Web Audio API, no external files) ---
+  let audioCtx = null;
+  let ambientNodes = null;
+  let ambientOn = false;
+
+  function ensureCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
+  function playChime() {
+    const ctx = ensureCtx();
+    const now = ctx.currentTime;
+    [660, 880, 990].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, now + i * 0.15);
+      gain.gain.linearRampToValueAtTime(0.18, now + i * 0.15 + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 0.6);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + i * 0.15);
+      osc.stop(now + i * 0.15 + 0.7);
+    });
+  }
+
+  function startAmbient() {
+    const ctx = ensureCtx();
+    const bufferSize = 2 * ctx.sampleRate;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) output[i] = (Math.random() * 2 - 1) * 0.5;
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    noise.loop = true;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 500;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0.04;
+
+    noise.connect(filter).connect(gain).connect(ctx.destination);
+    noise.start();
+
+    ambientNodes = { noise, gain };
+  }
+
+  function stopAmbient() {
+    if (ambientNodes) {
+      ambientNodes.noise.stop();
+      ambientNodes = null;
+    }
+  }
+
+  soundToggle.addEventListener('click', () => {
+    ambientOn = !ambientOn;
+    soundToggle.textContent = ambientOn ? '🔊' : '🔇';
+    if (ambientOn) startAmbient(); else stopAmbient();
+  });
+
+  // --- Timer control ---
+  function tick() {
+    remaining--;
+    if (remaining < 0) {
+      clearInterval(intervalId);
+      running = false;
+      startPauseBtn.textContent = 'Start';
+      playChime();
+      recordCompletedSession();
+      fadeQuote(pickQuote());
+      remaining = 0;
+      render();
+      return;
+    }
+    render();
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    startPauseBtn.textContent = 'Pause';
+    intervalId = setInterval(tick, 1000);
+  }
+
+  function pause() {
+    running = false;
+    startPauseBtn.textContent = 'Start';
+    clearInterval(intervalId);
+  }
+
+  startPauseBtn.addEventListener('click', () => {
+    if (running) pause(); else start();
+  });
+
+  resetBtn.addEventListener('click', () => {
+    pause();
+    remaining = totalSeconds;
+    render();
+  });
+
+  modeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      modeButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      pause();
+      const mins = parseInt(btn.dataset.mins, 10);
+      isBreak = btn.dataset.break === '1';
+      totalSeconds = mins * 60;
+      remaining = totalSeconds;
+      modeLabel.textContent = isBreak ? 'Pause-Zeit' : 'Fokus-Zeit';
+      document.body.classList.toggle('break-mode', isBreak);
+      fadeQuote(pickQuote());
+      render();
+    });
+  });
+
+  // Init
+  applyTimeOfDayTheme();
+  buildStars();
+  refreshStatsUI();
+  render();
+  setInterval(applyTimeOfDayTheme, 5 * 60 * 1000);
+})();
+</script>
+
+</body>
+</html>
